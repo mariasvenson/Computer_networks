@@ -18,6 +18,7 @@ MODE_OCTET=    "octet"
 MODE_MAIL=     "mail"
 
 TFTP_PORT= 13069
+#TFTP_PORT= 6969
 
 # Timeout in seconds
 TFTP_TIMEOUT= 2
@@ -124,19 +125,25 @@ def tftp_transfer(fd, hostname, direction):
     while True:    
 
         # GET -------------------------------------------------------------------------------
+        # Listen and wait until received a packet
         (rl,wl,xl) = select.select([serversocket],[],[], TFTP_TIMEOUT)
         try: 
+            #if received from server, read and unpack the packet
             if serversocket in rl:
                 (block, sender_addr) = serversocket.recvfrom(BLOCK_SIZE + 4)
-                pkt = parse_packet(block) #packerterar upp paketet 
+                pkt = parse_packet(block) 
                 try:
                     (opcode, _,_) = pkt
                 except ValueError as e:
                     print "GOT AN ERROR"
 
+                #If what we received is DATA, did we get the expected block?
+                #if yes, send ack for the received block
+                #if not, resend the the ack for the previous block. 
                 if opcode == OPCODE_DATA:
                     (opcode, blocknr, data) = pkt
                     print "RECEIVED BLOCK " + str(blocknr)
+                    
                     if current_blocknr == blocknr:
                     #check if we got the right TID from the sender
                     #if (sender_tid == x_tid):
@@ -144,82 +151,85 @@ def tftp_transfer(fd, hostname, direction):
                         if len(block) < BLOCK_SIZE + 4: 
                             last_packet = True
 
-                        (rl,wl,xl) = select.select([],[serversocket],[], TFTP_TIMEOUT)
-                        if serversocket in wl:
-                            ack = make_packet_ack(blocknr)
-                            serversocket.sendto(ack, sender_addr)
-                            current_blocknr += 1
-                            print "Sent ack for: " + str(blocknr)
-                            print "------------------------------------"
-                            if last_packet == True:
-                                break
-                        else: 
-                            ack = make_packet_ack(current_blocknr)
-                            serversocket.sendto(ack, sender_addr)
-                            #if wrong ack, server pls resend ack 
-                            #send ack -1
+                        ack = make_packet_ack(blocknr)
+                        serversocket.sendto(ack, sender_addr)
+                        current_blocknr += 1
+                        print "Sent ack for: " + str(blocknr)
+                        print "------------------------------------"
+                        if last_packet == True:
+                            break
+                        # else: 
+                        #     print "RE-Sent ack forrrrrr: " + str(blocknr)
+                        #     print "------------------------------------"
+                        #     ack = make_packet_ack(blocknr)
+                        #     serversocket.sendto(ack, sender_addr)
+                           
+                    #Wrong ack, RE-Send the previous ack
                     else:
-                        (rl,wl,xl) = select.select([],[serversocket],[], TFTP_TIMEOUT)
-                        if serversocket in wl:
-                            ack = make_packet_ack(blocknr)
-                            serversocket.sendto(ack, sender_addr)
-                            print "RE-Sent ack for: " + str(blocknr)
-                            print "------------------------------------"
+                        ack = make_packet_ack(blocknr)
+                        serversocket.sendto(ack, sender_addr)
+                        print "RE-Sent ack for: " + str(blocknr)
+                        print "------------------------------------"
 
 
-
-
-
-
-
-
+                # PUT -------------------------------------------------------------------------------
+               
 
                 elif opcode == OPCODE_ACK:
-                    print "OPCODE NUMBER:  " + str(opcode)
+                    #print "OPCODE NUMBER:  " + str(opcode)
                     (opcode, blocknr, _) = pkt 
                     
+                    #if 
                     if current_blocknr == blocknr:
+                        current_blocknr += 1
+                        blocknr += 1
 
                         if (bytes_left < BLOCK_SIZE):
-                            current_blocknr += 1
-                            blocknr += 1
                             data_packet = make_packet_data(blocknr, read_file[(BLOCK_SIZE * current_blocknr): (BLOCK_SIZE * current_blocknr)+ bytes_left])  
                             bytes_left -= bytes_left
                             if bytes_left == 0:
-                                break
-                            print ">>>>BLOCKNR:  " + str(blocknr) 
-                            print ">>>>DATA PACKET: " + str(data_packet)
-                            print ">>>>CURRENT BLOCKNR:  " + str(current_blocknr)
+                                last_packet = True
+                            # print ">>>>BLOCKNR:  " + str(blocknr) 
+                            # print ">>>>DATA PACKET: " + str(data_packet)
+                            # print ">>>>CURRENT BLOCKNR:  " + str(current_blocknr)
+                            print "Block: " + str(blocknr)
+                            print "------------------------------------"
                            
-                        else:  
-                            current_blocknr += 1
-                            blocknr += 1     
+                        else:     
                             data_packet = make_packet_data(blocknr, read_file[(BLOCK_SIZE * current_blocknr): (BLOCK_SIZE * current_blocknr)+ BLOCK_SIZE])
                             bytes_left -= BLOCK_SIZE
-                            #print "BLOCKNR:  " + str(blocknr) 
-                            #print "CURRENT BLOCKNR:  " + str(current_blocknr)
-                            #print "DATA PACKET: " + str(data_packet)
-
+                            print "Sent block: " + str(blocknr)
+                            print "------------------------------------"
                         serversocket.sendto(data_packet, sender_addr)
+                        if last_packet == True: 
+                            break
                     
-
                     else: 
-                        print "er"
-                        #error duplicate ack 
+                        (rl,wl,xl) = select.select([], [serversocket], [], TFTP_TIMEOUT)
+                        if serversocket in wl: 
+                            data_packet = make_packet_data(current_blocknr, read_file[(BLOCK_SIZE * current_blocknr): (BLOCK_SIZE * current_blocknr)+ BLOCK_SIZE])
+                            serversocket.sendto(data_packet, sender_addr)
+                            print "Resent block: " + str(current_blocknr)
+                            print "------------------------------------"
+                            #error duplicate ack 
+                        else: "Timeout" 
                 
                 elif opcode == OPCODE_ERR:
                     (opcode, errcode, errmsg) = pkt
-                    (opcode, errcode, errmsg) = pkt
-                    print "ERR", errcode, errmsg
+                    print "Error", errcode, errmsg
+                    break
+
+
                 # Wait for packet, write the data to the filedescriptor or
                 # read the next block from the file. Send new packet to server.
 
                 # Don't forget to deal with timeouts and received error packets.
                 pass
         except: 
+            print "GYBOUILJKN"
             serversocket.sendto(p, (ip, port))
             
-    print "DONE"
+    #print "DONE"
     fd.close() 
 
 
