@@ -1,0 +1,44 @@
+Network Working Group                                         K. Sollins
+Request For Comments: 1350                                           MIT
+STD: 33                                                        July 1992
+Obsoletes: RFC 783
+
+
+                     THE TFTP PROTOCOL (REVISION 2)
+
+Status of this Memo
+
+   This RFC specifies an IAB standards track protocol for the Internet
+   community, and requests discussion and suggestions for improvements.
+   Please refer to the current edition of the "IAB Official Protocol
+   Standards" for the standardization state and status of this protocol.
+   Distribution of this memo is unlimited.
+
+Summary
+
+   TFTP is a very simple protocol used to transfer files.  It is from
+   this that its name comes, Trivial File Transfer Protocol or TFTP.
+   Each nonterminal packet is acknowledged separately.  This document
+   describes the protocol and its types of packets.  The document also
+   explains the reasons behind some of the design decisions.
+
+Acknowlegements
+
+   The protocol was originally designed by Noel Chiappa, and was
+   redesigned by him, Bob Baldwin and Dave Clark, with comments from
+   Steve Szymanski.  The current revision of the document includes
+   modifications stemming from discussions with and suggestions from
+   Larry Allen, Noel Chiappa, Dave Clark, Geoff Cooper, Mike Greenwald,
+   Liza Martin, David Reed, Craig Milo Rogers (of USC-ISI), Kathy
+   Yellick, and the author.  The acknowledgement and retransmission
+   scheme was inspired by TCP, and the error mechanism was suggested by
+   PARC's EFTP abort message.
+
+   The May, 1992 revision to fix the "Sorcerer's Apprentice" protocol
+   bug [4] and other minor document problems was done by Noel Chiappa.
+
+   This research was supported by the Advanced Research Projects Agency
+   of the Department of Defense and was monitored by the Office of Naval
+   Research under contract number N00014-75-C-0661.
+
+
