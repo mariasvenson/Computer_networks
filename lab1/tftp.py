@@ -7,14 +7,17 @@ BLOCK_SIZE= 512
 # 512 + header (4)
 
 #TFTP header consists of a 2 byte opcode field which indicates the packet's type
-OPCODE_RRQ =   1
-OPCODE_WRQ =   2
-OPCODE_DATA =  3
-OPCODE_ACK=   4
-OPCODE_ERR=   5
+OPCODE_RRQ = 1
+OPCODE_WRQ = 2
+OPCODE_DATA = 3
+OPCODE_ACK = 4
+OPCODE_ERR = 5
 
+#just ascii text 
 MODE_NETASCII= "netascii"
+#101 
 MODE_OCTET=    "octet"
+
 MODE_MAIL=     "mail"
 
 TFTP_PORT= 13069
@@ -97,6 +100,7 @@ def tftp_transfer(fd, hostname, direction):
     ip = host[0][4][0]
     port = host[0][4][1]
     serversocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server_TID = None
 
     
     #(sender_ip, sender_tid) = sender_addr # When do we get the TID?     
@@ -132,6 +136,15 @@ def tftp_transfer(fd, hostname, direction):
             if serversocket in rl:
                 (block, sender_addr) = serversocket.recvfrom(BLOCK_SIZE + 4)
                 pkt = parse_packet(block) 
+                (host_IP, host_TID) = sender_addr
+                
+                if server_TID == None:
+                    server_TID = host_TID
+                elif server_TID != host_TID:
+                    error_pack = make_packet_err(5, ERROR_CODES[5])
+                    serversocket.sendto(error_pack, sender_addr)
+                    continue 
+
                 try:
                     (opcode, _,_) = pkt
                 except ValueError as e:
@@ -204,7 +217,8 @@ def tftp_transfer(fd, hostname, direction):
                         if last_packet == True: 
                             break
                     
-                    else: 
+                    else:
+                        #Retransmit the packet  
                         (rl,wl,xl) = select.select([], [serversocket], [], TFTP_TIMEOUT)
                         if serversocket in wl: 
                             data_packet = make_packet_data(current_blocknr, read_file[(BLOCK_SIZE * current_blocknr): (BLOCK_SIZE * current_blocknr)+ BLOCK_SIZE])
