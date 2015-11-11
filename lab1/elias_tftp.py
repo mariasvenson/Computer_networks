@@ -1,7 +1,6 @@
 #! /usr/bin/python
 # https://pymotw.com/2/struct/
-import sys,socket,struct,select,hashlib,time
-
+import sys,socket,struct,select, hashlib
 
 BLOCK_SIZE= 512
 
@@ -17,6 +16,9 @@ OPCODE_ERR = 5
 MODE_NETASCII= "netascii"
 MODE_OCTET=    "octet"
 MODE_MAIL=     "mail"
+
+#TFTP_PORT= 13069
+TFTP_PORT= 6969
 
 # Timeout in seconds
 TFTP_TIMEOUT= 2
@@ -80,10 +82,10 @@ def parse_packet(msg):
 
 
 
-def tftp_transfer(fd, hostname, direction, port):
+def tftp_transfer(fd, hostname, direction):
     
     # Open socket interface
-    host = socket.getaddrinfo(hostname, port)
+    host = socket.getaddrinfo(hostname, TFTP_PORT)
     ip = host[0][4][0]
     port = host[0][4][1]
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -141,7 +143,6 @@ def tftp_transfer(fd, hostname, direction, port):
                     (opcode, errcode, errmsg) = pkt
                     print "RECEIVED ERROR PACKET", errcode, errmsg
                     break
-
 
                 # GET ---------------------------
                 #If what we received is DATA, did we get the expected block?
@@ -258,7 +259,7 @@ def tftp_transfer(fd, hostname, direction, port):
 
                 # No response yet
                 #else:
-                    #print "Timeout!"
+                #print "Timeout!"
 
     # EXCEPTION ---------------------------------------------------------------------------           
         except: 
@@ -271,76 +272,8 @@ def usage():
     sys.stderr.write("Usage: %s [-g|-p] FILE HOST\n" % sys.argv[0])
     sys.exit(1)
 
-def main2(filename, direction, hostname, port):
-    TFTP_PORT= port
-    # No need to change this function
-    # select
-    if direction == TFTP_GET:
-        print "Transfer file %s from host %s" % (filename, hostname)
-    else:
-        print "Transfer file %s to host %s" % (filename, hostname)
-
-    total_time = 0
-
-    for i in range(0,10):
-        try:
-            if direction == TFTP_GET:
-                fd = open(filename, "wb")
-            else:
-                fd = open(filename, "rb")
-        except IOError as e:
-            sys.stderr.write("File error (%s): %s\n" % (filename, e.strerror))
-            sys.exit(2)
-        start = time.time()
-        tftp_transfer(fd, hostname, direction, port)
-        stop = time.time()
-        time_taken = stop-start
-        print "Time taken: " + str(time_taken) + ", Iteration: " + str(i)
-        print "++++++++++++++++++++++++++++++++++++"
-        print "\n"
-        total_time += time_taken
-        fd.close()
-
-    average_time = total_time/10
-
-    try:
-        if direction == TFTP_GET:
-            with open(filename, "rb") as fd:
-                d = fd.read()
-
-            md5 = hashlib.md5(d).hexdigest()
-            print md5
-            print str(len(d))
-            if filename == "small.txt":
-                true_md5 = "667ff61c0d573502e482efa85b468f1f"
-                true_size = 1931
-            elif filename == "medium.pdf":
-                true_md5 = "ee98d0524433e2ca4c0c1e05685171a7"
-                true_size = 17577
-            elif filename == "large.jpeg":
-                true_md5 = "f5b558fe29913cc599161bafe0c08ccf"
-                true_size = 82142
-
-            if md5 == true_md5 and len(d) == true_size:
-                print "True"
-            else:
-                print "False"
-
-    except IOError as e:
-        sys.stderr.write("File error (%s): %s\n" % (filename, e.strerror))
-        sys.exit(2)
-
-    print "Average time taken: " + str(average_time)
-    return average_time
-
-
-
-
-
-# just for one file -------------------------------------------------------------------------
 
 def main():
-
     # No need to change this function
     # select
     direction = TFTP_GET
@@ -375,10 +308,7 @@ def main():
         sys.stderr.write("File error (%s): %s\n" % (filename, e.strerror))
         sys.exit(2)
 
-    start = time.time()
     tftp_transfer(fd, hostname, direction)
-    stop = time.time()
-    time_taken = stop-start
     fd.close()
 
     try:
@@ -386,30 +316,27 @@ def main():
             with open(filename, "rb") as fd:
                 d = fd.read()
 
-            md5 = hashlib.md5(d).hexdigest()
-            print md5
-            print str(len(d))
-            if filename == "small.txt":
-                true_md5 = "667ff61c0d573502e482efa85b468f1f"
-                true_size = 1931
-            elif filename == "medium.pdf":
-                true_md5 = "ee98d0524433e2ca4c0c1e05685171a7"
-                true_size = 17577
-            elif filename == "large.jpeg":
-                true_md5 = "f5b558fe29913cc599161bafe0c08ccf"
-                true_size = 82142
-
-            if md5 == true_md5 and len(d) == true_size:
-                print "True"
-            else:
-                print "False"
-
     except IOError as e:
         sys.stderr.write("File error (%s): %s\n" % (filename, e.strerror))
         sys.exit(2)
 
+    md5 = hashlib.md5(d).hexdigest()
+    print md5
+    print str(len(d))
+    if filename == "small.txt":
+        true_md5 = "667ff61c0d573502e482efa85b468f1f"
+        true_size = 1931
+    elif filename == "medium.pdf":
+        true_md5 = "ee98d0524433e2ca4c0c1e05685171a7"
+        true_size = 17577
+    elif filename == "large.jpeg":
+        ture_size = 82142
+        true_md5 = "f5b558fe29913cc599161bafe0c08ccf"
 
-    print "Time taken: " + str(time_taken)
+    if md5 == true_md5 and len(d) == true_size:
+        print "True"
+    else:
+        print "False"
 
 if __name__ == "__main__":
     main()
