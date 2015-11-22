@@ -1,0 +1,34 @@
+./tftp.py -p new_medium.pdf rabbit.it.uu.se
+Iteration 1
+Packet loss: 4
+0m40.764s
+Iteration 2
+Packet loss: 5
+0m50.774s
+Iteration 3
+Packet loss: 3
+0m30.931s
+Iteration 4
+Packet loss: 5
+0m50.304s
+Iteration 5
+Packet loss: 0
+0m0.518s
+Iteration 6
+Packet loss: 3
+0m30.192s
+Iteration 7
+Packet loss: 0
+0m0.179s
+Iteration 8
+Packet loss: 4
+0m40.502s
+Iteration 9
+Packet loss: 3
+0m30.296s
+Iteration 10
+Packet loss: 5
+0m50.562s
+Iteration 11
+Packet loss: 2
+0m20.587s

@@ -1,7 +1,5 @@
 #! /usr/bin/python
-# https://pymotw.com/2/struct/
-import sys,socket,struct,select,hashlib,time
-
+import sys,socket,struct,select, time
 
 BLOCK_SIZE= 512
 
@@ -17,6 +15,8 @@ OPCODE_ERR = 5
 MODE_NETASCII= "netascii"
 MODE_OCTET=    "octet"
 MODE_MAIL=     "mail"
+
+TFTP_PORT= 13069
 
 # Timeout in seconds
 TFTP_TIMEOUT= 2
@@ -80,16 +80,16 @@ def parse_packet(msg):
 
 
 
-def tftp_transfer(fd, hostname, direction, port):
+def tftp_transfer(fd, hostname, direction):
     
     # Open socket interface
-    host = socket.getaddrinfo(hostname, port)
+    host = socket.getaddrinfo(hostname, TFTP_PORT)
     ip = host[0][4][0]
     port = host[0][4][1]
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server_TID = None
     last_packet = False
-
+    total_packet_lost = 0
        
     # Check if we are putting a file or getting a file and create 
     # the corresponding packet and send it
@@ -102,10 +102,10 @@ def tftp_transfer(fd, hostname, direction, port):
     elif direction == TFTP_PUT:
         RECEIVE_SIZE = 4
         current_blocknr = 0
+        blocknr = 0
         p = make_packet_wrq(fd.name, MODE_OCTET)
-        read_file = fd.read()
-        bytes_left = len(read_file)
-        print "Sending WRQ packet"
+        bytes_left = 0
+        bytes_leftx = 0
     else:
         print "No valid direction"
 
@@ -134,7 +134,7 @@ def tftp_transfer(fd, hostname, direction, port):
                     s.sendto(error_pack, sender_addr)
                     continue 
 
-                (opcode, _,_) = pkt
+                (opcode, blockN,_) = pkt
 
                 # RECEIVED ERROR PACKET ---------
                 if opcode == OPCODE_ERR:
@@ -155,6 +155,7 @@ def tftp_transfer(fd, hostname, direction, port):
                     # If received correct DATA block, write data to file and send ACK
                     if current_blocknr == blocknr:
                         resend_count = 0
+
                         fd.write(data)
 
                         # If last packet, set the last_packet-flag TRUE
@@ -169,7 +170,11 @@ def tftp_transfer(fd, hostname, direction, port):
 
                     # Else, received wrong (a duplicate) DATA block, RE-Send the previous ACK
                     else:
+                        # if we didnt get the expected blocknumber it could mean that our previous
+                        # ack packet got lost so total_packet_lost +1
+                        #
                         packet = make_packet_ack(blocknr)
+                        total_packet_lost += 1
                         resend_count += 1
                         print "Duplicate!"
                         print "RE-Sending ACK for block: " + str(blocknr) + ", resend count: " + str(resend_count)
@@ -181,50 +186,53 @@ def tftp_transfer(fd, hostname, direction, port):
                 #If yes, create DATA packet for the next block
                 #If not, create DATA packet for the previous block
                 elif opcode == OPCODE_ACK and direction == TFTP_PUT:
-
-                    (opcode, blocknr, _) = pkt 
-                    print "RECEIVED ACK BLOCKNR: " + str(blocknr)
+                    print "Bytes left: " + str(bytes_left)
+                    (opcode, blocknr, _) = pkt
+                    print "RECEIVED ACK BLOCKNR: " + str(blockN)
+                    print "Current BLOCK NR: " +str(current_blocknr)
                     
                     # If received correct ACK block, create next DATA block
                     if current_blocknr == blocknr:
                         resend_count = 0
                         current_blocknr += 1
                         blocknr += 1
-
+                        data_block = fd.read(512)
+  
                         # If last DATA packet to send, set the last_packet-flag TRUE
-                        if(bytes_left < BLOCK_SIZE):
-                            n_bytes = bytes_left
-                            bytes_left -= bytes_left
+                        # if blx to small, do not send moar
+                        if(len(data_block) < BLOCK_SIZE):
                             msg = "Sending last"
-                            if bytes_left == 0:
-                                last_packet = True
+                            last_packet = True
                             
                         # Else create normal block_size'd DATA packet
-                        else:     
-                            n_bytes = BLOCK_SIZE
-                            bytes_left -= BLOCK_SIZE
+                        else:
                             msg = "Sending"
-                        
-                        data_block = read_file[(BLOCK_SIZE * current_blocknr) : (BLOCK_SIZE * current_blocknr) + n_bytes]
+
                         packet = make_packet_data(blocknr, data_block)
+                        print "sending: " +str(len(data_block)) +" bytes of data"
                         print msg + " block: " + str(blocknr)
                         print "------------------------------------"
+                    else:
+                        print "Received unexpected ACK block"
+                        total_packet_lost += 1
+                        resend_count += 1
                         
                     
                     # Else, received wrong ACK block, RE-create the previous DATA block
-                    else:
-                        packet = make_packet_data(current_blocknr, read_file[(BLOCK_SIZE * current_blocknr): (BLOCK_SIZE * current_blocknr)+ BLOCK_SIZE])
-                        resend_count += 1
-                        print "Duplicate!"
-                        print "Resending block: " + str(current_blocknr) + ", resend count: " + str(resend_count)
-                        print "------------------------------------"
+                    # else:
+                    #     packet = make_packet_data(current_blocknr, read_file[(BLOCK_SIZE * current_blocknr): (BLOCK_SIZE * current_blocknr)+ BLOCK_SIZE])
+                    #     total_packet_lost += 1
+                    #     resend_count += 1
+                    #     print "Duplicate!"
+                    #     print "Resending block: " + str(current_blocknr) + ", resend count: " + str(resend_count)
+                    #     print "------------------------------------"
                     
 
                 # SEND PACKET MADE IN GET OR PUT ---------------
                 (rl,wl,xl) = select.select([], [s], [], TFTP_TIMEOUT)
                 if s in wl: 
                     (bytes) = s.sendto(packet, sender_addr)
-                    if last_packet == True: 
+                    if last_packet == True:
                         break
                 else:
                     print "Send packet timed out!"
@@ -263,7 +271,8 @@ def tftp_transfer(fd, hostname, direction, port):
     # EXCEPTION ---------------------------------------------------------------------------           
         except: 
             print "Exception!!"
-    fd.close()
+    print "&"
+    print "Packet loss: " + str(total_packet_lost)
 
 
 def usage():
@@ -271,78 +280,9 @@ def usage():
     sys.stderr.write("Usage: %s [-g|-p] FILE HOST\n" % sys.argv[0])
     sys.exit(1)
 
-def main2(filename, direction, hostname, port):
-    TFTP_PORT= port
-    # No need to change this function
-    # select
-    if direction == TFTP_GET:
-        print "Transfer file %s from host %s" % (filename, hostname)
-    else:
-        print "Transfer file %s to host %s" % (filename, hostname)
-
-    total_time = 0
-
-    for i in range(0,10):
-        try:
-            if direction == TFTP_GET:
-                fd = open(filename, "wb")
-            else:
-                fd = open(filename, "rb")
-        except IOError as e:
-            sys.stderr.write("File error (%s): %s\n" % (filename, e.strerror))
-            sys.exit(2)
-        start = time.time()
-        tftp_transfer(fd, hostname, direction, port)
-        stop = time.time()
-        time_taken = stop-start
-        print "Time taken: " + str(time_taken) + ", Iteration: " + str(i)
-        print "++++++++++++++++++++++++++++++++++++"
-        print "\n"
-        total_time += time_taken
-        fd.close()
-
-    average_time = total_time/10
-
-    try:
-        if direction == TFTP_GET:
-            with open(filename, "rb") as fd:
-                d = fd.read()
-
-            md5 = hashlib.md5(d).hexdigest()
-            print md5
-            print str(len(d))
-            if filename == "small.txt":
-                true_md5 = "667ff61c0d573502e482efa85b468f1f"
-                true_size = 1931
-            elif filename == "medium.pdf":
-                true_md5 = "ee98d0524433e2ca4c0c1e05685171a7"
-                true_size = 17577
-            elif filename == "large.jpeg":
-                true_md5 = "f5b558fe29913cc599161bafe0c08ccf"
-                true_size = 82142
-
-            if md5 == true_md5 and len(d) == true_size:
-                print "True"
-            else:
-                print "False"
-
-    except IOError as e:
-        sys.stderr.write("File error (%s): %s\n" % (filename, e.strerror))
-        sys.exit(2)
-
-    print "Average time taken: " + str(average_time)
-    return average_time
-
-
-
-
-
-# just for one file -------------------------------------------------------------------------
 
 def main():
-
     # No need to change this function
-    # select
     direction = TFTP_GET
     if len(sys.argv) == 3:
         filename = sys.argv[1]
@@ -375,41 +315,9 @@ def main():
         sys.stderr.write("File error (%s): %s\n" % (filename, e.strerror))
         sys.exit(2)
 
-    start = time.time()
     tftp_transfer(fd, hostname, direction)
-    stop = time.time()
-    time_taken = stop-start
+
     fd.close()
-
-    try:
-        if direction == TFTP_GET:
-            with open(filename, "rb") as fd:
-                d = fd.read()
-
-            md5 = hashlib.md5(d).hexdigest()
-            print md5
-            print str(len(d))
-            if filename == "small.txt":
-                true_md5 = "667ff61c0d573502e482efa85b468f1f"
-                true_size = 1931
-            elif filename == "medium.pdf":
-                true_md5 = "ee98d0524433e2ca4c0c1e05685171a7"
-                true_size = 17577
-            elif filename == "large.jpeg":
-                true_md5 = "f5b558fe29913cc599161bafe0c08ccf"
-                true_size = 82142
-
-            if md5 == true_md5 and len(d) == true_size:
-                print "True"
-            else:
-                print "False"
-
-    except IOError as e:
-        sys.stderr.write("File error (%s): %s\n" % (filename, e.strerror))
-        sys.exit(2)
-
-
-    print "Time taken: " + str(time_taken)
 
 if __name__ == "__main__":
     main()

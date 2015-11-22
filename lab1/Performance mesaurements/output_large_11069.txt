@@ -1,0 +1,34 @@
+./tftp.py -p new_large.jpeg rabbit.it.uu.se
+Iteration 1
+Packet loss: 22
+3m41.534s
+Iteration 2
+Packet loss: 12
+2m2.341s
+Iteration 3
+Packet loss: 19
+3m12.706s
+Iteration 4
+Packet loss: 16
+2m42.198s
+Iteration 5
+Packet loss: 21
+3m33.556s
+Iteration 6
+Packet loss: 20
+3m22.653s
+Iteration 7
+Packet loss: 14
+2m21.968s
+Iteration 8
+Packet loss: 16
+2m42.329s
+Iteration 9
+Packet loss: 16
+2m42.137s
+Iteration 10
+Packet loss: 14
+2m21.655s
+Iteration 11
+Packet loss: 15
+2m31.921s
