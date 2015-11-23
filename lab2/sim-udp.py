@@ -126,7 +126,7 @@ interfaces = address.Assign(devices);
 echoServer = ns.applications.UdpEchoServerHelper(9)
 serverApps = echoServer.Install(nodes.Get(1))
 serverApps.Start(ns.core.Seconds(1.0))
-serverApps.Stop(ns.core.Seconds(10.0))
+serverApps.Stop(ns.core.Seconds(20.0))
 
 # Create the client application and connect it to node 1 and port 9. Configure number
 # of packets, packet sizes, inter-arrival interval.
@@ -139,7 +139,7 @@ echoClient.SetAttribute("PacketSize", ns.core.UintegerValue(1024))
 # Put the client on node 0 and start sending at time 2.0s.
 clientApps = echoClient.Install(nodes.Get(0))
 clientApps.Start(ns.core.Seconds(2.0))
-clientApps.Stop(ns.core.Seconds(10.0))
+clientApps.Stop(ns.core.Seconds(20.0))
 
 
 #######################################################################################
@@ -174,7 +174,7 @@ monitor = flowmon_helper.InstallAll()
 #
 # We have to set stop time, otherwise the flowmonitor causes simulation to run forever
 
-ns.core.Simulator.Stop(ns.core.Seconds(15.0))
+ns.core.Simulator.Stop(ns.core.Seconds(25.0))
 ns.core.Simulator.Run()
 
 
