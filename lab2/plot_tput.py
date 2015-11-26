@@ -7,7 +7,7 @@
 # usage: plot_tput.py <interval in seconds> <tshark output file name>
 #
 # To generate the input file for this script run tshark on your pcap file as follows:
-# bash$ tshark -r <pcap file name> -t r -q -z io,stat,0.5 > tputfile
+# bash$ tshark -r <pcap file name> -t r -q -z io,stat,1 > tputfile
 #
 # And then plot the graph:
 # bash$ python plot_tput.py tputfile
