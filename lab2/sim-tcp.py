@@ -69,7 +69,8 @@ cmd = ns.core.CommandLine()
 
 # Default values
 cmd.latency = 1
-cmd.rate = 500000
+cmd.udprate = 500000
+cmd.tcprate = 1000000
 cmd.rate4to5 = 500000
 cmd.on_off_rate = 300000
 cmd.AddValue ("rate", "P2P data rate in bps")
@@ -122,14 +123,13 @@ n4n5.Add(nodes.Get(5))
 pointToPoint = ns.point_to_point.PointToPointHelper()
 pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(1500))
 pointToPoint.SetDeviceAttribute("DataRate",
-                            ns.network.DataRateValue(ns.network.DataRate(int(cmd.rate))))
+                            ns.network.DataRateValue(ns.network.DataRate(int(cmd.udprate))))
 pointToPoint.SetChannelAttribute("Delay",
                             ns.core.TimeValue(ns.core.MilliSeconds(int(cmd.latency))))
 
 # install network devices for all nodes based on point-to-point links
-d0d4 = pointToPoint.Install(n0n4)
+
 d1d4 = pointToPoint.Install(n1n4)
-d2d5 = pointToPoint.Install(n2n5)
 d3d5 = pointToPoint.Install(n3n5)
 
 pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(1500))
@@ -139,6 +139,15 @@ pointToPoint.SetChannelAttribute("Delay",
                             ns.core.TimeValue(ns.core.MilliSeconds(int(cmd.latency))))
 
 d4d5 = pointToPoint.Install(n4n5)
+
+pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(1500))
+pointToPoint.SetDeviceAttribute("DataRate",
+                                ns.network.DataRateValue(ns.network.DataRate(int(cmd.tcprate))))
+pointToPoint.SetChannelAttribute("Delay",
+                            ns.core.TimeValue(ns.core.MilliSeconds(int(cmd.latency))))
+
+d0d4 = pointToPoint.Install(n0n4)
+d2d5 = pointToPoint.Install(n2n5)
 
 # Here we can introduce an error model on the bottle-neck link (from node 4 to 5)
 #em = ns.network.RateErrorModel()
@@ -280,7 +289,7 @@ def SetupUdpConnection(srcNode, dstNode, dstAddr, startTime, stopTime):
 SetupTcpConnection(nodes.Get(0), nodes.Get(2), if2if5.GetAddress(0),
                    ns.core.Seconds(1.0), ns.core.Seconds(40.0))
 SetupUdpConnection(nodes.Get(1), nodes.Get(3), if3if5.GetAddress(0),
-                   ns.core.Seconds(1.0), ns.core.Seconds(40.0))
+                   ns.core.Seconds(10.0), ns.core.Seconds(40.0))
 
 
 #######################################################################################
