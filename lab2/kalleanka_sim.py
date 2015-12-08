@@ -1,14 +1,21 @@
-
 #
-# This script simulates two nodes connected with a point-to-point channel and running
-# a UDP Echo service on top of an Internet protocol stack. Node 0 is the client, and
-# node 1 is the server.
+# This script simulates 6 nodes configured in a "dumb bell" network. See below:
 #
-# Node 0 generates 100 packets of size 1024 (+ some headers) with deterministic inter-
-# arrival times.
+# Network topology
+#
+#       n0 ---+      +--- n2
+#             |      |
+#             n4 -- n5
+#             |      |
+#       n1 ---+      +--- n3
+#
+# - All links are point-to-point with data rate 500kb/s and propagation delay 2ms
+#
+# Two data flows (and their applications are created):
+# - A TCP flow form n0 to n2
+# - A TCP flow from n1 to n3
 
 import sys
-import time
 import ns.applications
 import ns.core
 import ns.internet
@@ -16,13 +23,13 @@ import ns.network
 import ns.point_to_point
 import ns.flow_monitor
 
-
 #######################################################################################
 # SEEDING THE RNG
 #
 # Enable this line to have random number being generated between runs.
 
 #ns.core.RngSeedManager.SetSeed(int(time.time() * 1000 % (2**31-1)))
+
 
 #######################################################################################
 # LOGGING
@@ -33,10 +40,17 @@ import ns.flow_monitor
 # you would have to write extra scripts for filtering and parsing the output.
 # FlowMonitor may be a better choice of getting the information you want.
 
+
 #ns.core.LogComponentEnable("UdpEchoClientApplication", ns.core.LOG_LEVEL_INFO)
 #ns.core.LogComponentEnable("UdpEchoServerApplication", ns.core.LOG_LEVEL_INFO)
 #ns.core.LogComponentEnable("PointToPointNetDevice", ns.core.LOG_LEVEL_ALL)
 #ns.core.LogComponentEnable("DropTailQueue", ns.core.LOG_LEVEL_LOGIC)
+#ns.core.LogComponentEnable("OnOffApplication", ns.core.LOG_LEVEL_INFO)
+#ns.core.LogComponentEnable("TcpWestwood", ns.core.LOG_LEVEL_LOGIC)
+#ns.core.LogComponentEnable("TcpTahoe", ns.core.LOG_LEVEL_LOGIC)
+#ns.core.LogComponentEnable("TcpNewReno", ns.core.LOG_LEVEL_LOGIC)
+
+
 
 
 #######################################################################################
@@ -46,7 +60,7 @@ import ns.flow_monitor
 # command line instead of in the script. You may start the simulation by:
 #
 # bash$ ./waf shell
-# bash$ python sim-udp.py --interval=0.1
+# bash$ python sim-tcp.py --latency=10
 #
 # You can add your own parameters and there default values below. To access the values
 # in the simulator, you use the variable cmd.something.
@@ -56,10 +70,10 @@ cmd = ns.core.CommandLine()
 # Default values
 cmd.latency = 1
 cmd.rate = 500000
-cmd.interval = 1
-cmd.AddValue ("latency", "P2P link Latency in miliseconds")
+cmd.on_off_rate = 300000
 cmd.AddValue ("rate", "P2P data rate in bps")
-cmd.AddValue ("interval", "UDP client packet interval")
+cmd.AddValue ("latency", "P2P link Latency in miliseconds")
+cmd.AddValue ("on_off_rate", "OnOffApplication data sending rate")
 cmd.Parse(sys.argv)
 
 
@@ -73,75 +87,124 @@ nodes.Create(2)
 #######################################################################################
 # CONNECT NODES WITH POINT-TO-POINT CHANNEL
 #
-# We use a helper class to create the point-to-point channel. It helps us with creating
+# We use a helper class to create the point-to-point channels. It helps us with creating
 # the necessary objects on the two connected nodes as well, including creating the
 # NetDevices (of type PointToPointNetDevice), etc.
 
+# Set the default queue length to 5 packets (used by NetDevices)
+ns.core.Config.SetDefault("ns3::DropTailQueue::MaxPackets", ns.core.UintegerValue(5))
+
+
+# To connect the point-to-point channels, we need to define NodeContainers for all the
+# point-to-point channels.
+serverNode = ns.network.NodeContainer()
+serverNode.Add(nodes.Get(0))
+
+clientNodes = ns.network.NodeContainer()
+clientNodes.Add(nodes.Get(1))
+
+# create point-to-point helper with common attributes
 pointToPoint = ns.point_to_point.PointToPointHelper()
+pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(1500))
 pointToPoint.SetDeviceAttribute("DataRate",
                             ns.network.DataRateValue(ns.network.DataRate(int(cmd.rate))))
 pointToPoint.SetChannelAttribute("Delay",
-                                 ns.core.TimeValue(ns.core.MilliSeconds(int(cmd.latency))))
-devices = pointToPoint.Install(nodes)
+                            ns.core.TimeValue(ns.core.MilliSeconds(int(cmd.latency))))
 
-# devices is a collection (of two NetDevices). We can get them with the Get(n) method.
-# a NetDevice has a method called GetQueue() that retrieves its outgoing buffer queue.
-# By default that is a DropTailQueue, and that one has an attribute called "MaxPackets"
-# that specifies the queue lengths in the number of packets. Default is 100 packets.
-# Here you can change the default values:
-devices.Get(0).GetQueue().SetAttribute("MaxPackets", ns.core.UintegerValue(100))
-devices.Get(1).GetQueue().SetAttribute("MaxPackets", ns.core.UintegerValue(1))
+# install network devices for all nodes based on point-to-point links
+serverDevice = pointToPoint.Install(serverNode)
+clientDevices = pointToPoint.Install(clientNodes)
 
+# Here we can introduce an error model on the bottle-neck link (from node 4 to 5)
 #em = ns.network.RateErrorModel()
 #em.SetAttribute("ErrorUnit", ns.core.StringValue("ERROR_UNIT_PACKET"))
-#em.SetAttribute("ErrorRate", ns.core.DoubleValue(0.1))
-#devices.Get(1).SetReceiveErrorModel(em)
+#em.SetAttribute("ErrorRate", ns.core.DoubleValue(0.02))
+#d4d5.Get(1).SetReceiveErrorModel(em)
+
+
+#######################################################################################
+# CONFIGURE TCP
+#
+# Choose a TCP version and set some attributes.
+
+# Set a TCP segment size (this should be inline with the channel MTU)
+ns.core.Config.SetDefault("ns3::TcpSocket::SegmentSize", ns.core.UintegerValue(1448))
+
+# If you want, you may set a default TCP version here. It will affect all TCP
+# connections created in the simulator. If you want to simulate different TCP versions
+# at the same time, see below for how to do that.
+#ns.core.Config.SetDefault("ns3::TcpL4Protocol::SocketType",
+#                          ns.core.StringValue("ns3::TcpTahoe"))
+#                          ns.core.StringValue("ns3::TcpReno"))
+#                          ns.core.StringValue("ns3::TcpNewReno"))
+#                          ns.core.StringValue("ns3::TcpWestwood"))
+
+# Some examples of attributes for some of the TCP versions.
+ns.core.Config.SetDefault("ns3::TcpNewReno::ReTxThreshold", ns.core.UintegerValue(4))
+ns.core.Config.SetDefault("ns3::TcpWestwood::ProtocolType",
+                          ns.core.StringValue("WestwoodPlus"))
+
 
 #######################################################################################
 # CREATE A PROTOCOL STACK
 #
-# This code creates an IPv4 protocol stack on both our nodes, including ARP, ICMP,
-# pcap tracing, and routing if routing configurations are supplied.
+# This code creates an IPv4 protocol stack on all our nodes, including ARP, ICMP,
+# pcap tracing, and routing if routing configurations are supplied. All links need
+# different subnet addresses. Finally, we enable static routing, which is automatically
+# setup by an oracle.
 
+# Install networking stack for nodes
 stack = ns.internet.InternetStackHelper()
 stack.Install(nodes)
 
-# This part assigns IPv4 addresses to the NetDevices in the devices container. It
-# returns a container of "interfaces" that we need when we create applications. A
-# client application must know which server to connect to and here the interfaces are
-# used.
+# Here, you may change the TCP version per node. A node can only support on version at
+# a time, but different nodes can run different versions. The versions only affect the
+# sending node. Note that this must called after stack.Install().
+#
+# The code below would tell node 0 to use TCP Tahoe and node 1 to use TCP Westwood.
+#ns.core.Config.Set("/NodeList/0/$ns3::TcpL4Protocol/SocketType",
+#                   ns.core.TypeIdValue(ns.core.TypeId.LookupByName ("ns3::TcpTahoe")))
+#ns.core.Config.Set("/NodeList/1/$ns3::TcpL4Protocol/SocketType",
+#                   ns.core.TypeIdValue(ns.core.TypeId.LookupByName ("ns3::TcpWestwood")))
+
+
+# Assign IP addresses for net devices
 address = ns.internet.Ipv4AddressHelper()
+
 address.SetBase(ns.network.Ipv4Address("10.1.1.0"), ns.network.Ipv4Mask("255.255.255.0"))
-interfaces = address.Assign(devices);
+serverInterface = address.Assign(serverDevice)
+
+address.SetBase(ns.network.Ipv4Address("10.1.2.0"), ns.network.Ipv4Mask("255.255.255.0"))
+clientInterface = address.Assign(clientNodes)
+
+
+# Turn on global static routing so we can actually be routed across the network.
+ns.internet.Ipv4GlobalRoutingHelper.PopulateRoutingTables()
 
 
 #######################################################################################
-# CREATE UDP CLIENT AND SERVER
+# CREATE TCP APPLICATION AND CONNECTION
 #
-# In this section, we create two applications on the two different nodes, tells the
-# client to connect to the server, and start generating 100 packets with a
-# deterministic inter-arrival time.
+# Create a TCP client at node N0 and a TCP sink at node N2 using an On-Off application.
+# An On-Off application alternates between on and off modes. In on mode, packets are
+# generated according to DataRate, PacketSize. In off mode, no packets are transmitted.
 
-# Create the server on port 9. Put it on node 1, and start it at time 1.0s.
-
-
-server = ns.applications.UdpEchoServerHelper(9)
-serverApps = server.Install(nodes.Get(1))
+server = ns.applications.UdpServerHelper(9)
+serverApps = server.Install(serverNode)
 serverApps.Start(ns.core.Seconds(0.0))
 serverApps.Stop(ns.core.Seconds(3600.0))
 
 # Create the client application and connect it to node 1 and port 9. Configure number
 # of packets, packet sizes, inter-arrival interval.
-client = ns.applications.UdpEchoClientHelper(interfaces.GetAddress(1), 9)
+client = ns.applications.UdpClientHelper(clientInterface.GetAddress(1), 9)
 client.SetAttribute("MaxPackets", ns.core.UintegerValue(100))
 client.SetAttribute("Interval",
                         ns.core.TimeValue(ns.core.Seconds (float(cmd.interval))))
 client.SetAttribute("PacketSize", ns.core.UintegerValue(1024))
 # Put the client on node 0 and start sending at time 2.0s.
-clientApps = client.Install(nodes.Get(0))
+clientApps = client.Install(clientNodes)
 clientApps.Start(ns.core.Seconds(0.0))
 clientApps.Stop(ns.core.Seconds(3600.0))
-
 
 #######################################################################################
 # CREATE A PCAP PACKET TRACE FILE
@@ -151,11 +214,10 @@ clientApps.Stop(ns.core.Seconds(3600.0))
 # inspect every transmitted packets. Wireshark can also draw simple graphs based on
 # these files.
 #
-# You will get two files. One per NetDevice (i.e., one per Node). Each file is like
-# running Wireshark on each node. sim-udp-0-0.pcap is the file from node 0 and
-# sim-udp-1-0.pcap is the file from node 1.
+# You will get two files, one for node 0 and one for node 1
 
-pointToPoint.EnablePcapAll("sim-udp")
+pointToPoint.EnablePcap("sim-udp-server", serverDevice.Get(0), True)
+pointToPoint.EnablePcap("sim-udp-server", clientDevices.Get(0), True)
 
 
 #######################################################################################
@@ -163,8 +225,8 @@ pointToPoint.EnablePcapAll("sim-udp")
 #
 # Here is a better way of extracting information from the simulation. It is based on
 # a class called FlowMonitor. This piece of code will enable monitoring all the flows
-# created in the simulator. There are two flows in our example, one from the client to
-# server and one from the server to the client.
+# created in the simulator. There are four flows in our example, one from the client to
+# server and one from the server to the client for both TCP connections.
 
 flowmon_helper = ns.flow_monitor.FlowMonitorHelper()
 monitor = flowmon_helper.InstallAll()
@@ -186,7 +248,7 @@ ns.core.Simulator.Run()
 # print it on the screen.
 
 # check for lost packets
-monitor.CheckForLostPackets ();
+monitor.CheckForLostPackets()
 
 classifier = flowmon_helper.GetClassifier()
 
@@ -194,8 +256,7 @@ for flow_id, flow_stats in monitor.GetFlowStats():
   t = classifier.FindFlow(flow_id)
   proto = {6: 'TCP', 17: 'UDP'} [t.protocol]
   print ("FlowID: %i (%s %s/%s --> %s/%i)" % 
-         (flow_id, proto, t.sourceAddress, t.sourcePort,
-          t.destinationAddress, t.destinationPort))
+          (flow_id, proto, t.sourceAddress, t.sourcePort, t.destinationAddress, t.destinationPort))
           
   print ("  Tx Bytes: %i" % flow_stats.txBytes)
   print ("  Rx Bytes: %i" % flow_stats.rxBytes)
@@ -203,11 +264,11 @@ for flow_id, flow_stats in monitor.GetFlowStats():
   print ("  Flow active: %fs - %fs" % (flow_stats.timeFirstTxPacket.GetSeconds(),
                                        flow_stats.timeLastRxPacket.GetSeconds()))
   print ("  Throughput: %f Mbps" % (flow_stats.rxBytes * 
-                                    8.0 / 
-                                    (flow_stats.timeLastRxPacket.GetSeconds() 
-                                     - flow_stats.timeFirstTxPacket.GetSeconds())/
-                                    1024/
-                                    1024))
+                                     8.0 / 
+                                     (flow_stats.timeLastRxPacket.GetSeconds() 
+                                       - flow_stats.timeFirstTxPacket.GetSeconds())/
+                                     1024/
+                                     1024))
 
 
 # This is what we want to do last
