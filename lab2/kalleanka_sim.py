@@ -56,7 +56,7 @@ cmd = ns.core.CommandLine()
 # Default values
 cmd.latency = 1
 cmd.rate = 500000
-cmd.interval = 0.01
+cmd.interval = 1
 cmd.AddValue ("latency", "P2P link Latency in miliseconds")
 cmd.AddValue ("rate", "P2P data rate in bps")
 cmd.AddValue ("interval", "UDP client packet interval")
@@ -92,10 +92,10 @@ devices = pointToPoint.Install(nodes)
 devices.Get(0).GetQueue().SetAttribute("MaxPackets", ns.core.UintegerValue(100))
 devices.Get(1).GetQueue().SetAttribute("MaxPackets", ns.core.UintegerValue(1))
 
-# em = ns.network.RateErrorModel()
-# em.SetAttribute("ErrorUnit", ns.core.StringValue("ERROR_UNIT_PACKET"))
-# em.SetAttribute("ErrorRate", ns.core.DoubleValue(0.1))
-# devices.Get(1).SetReceiveErrorModel(em)
+#em = ns.network.RateErrorModel()
+#em.SetAttribute("ErrorUnit", ns.core.StringValue("ERROR_UNIT_PACKET"))
+#em.SetAttribute("ErrorRate", ns.core.DoubleValue(0.1))
+#devices.Get(1).SetReceiveErrorModel(em)
 
 #######################################################################################
 # CREATE A PROTOCOL STACK
@@ -115,34 +115,7 @@ address.SetBase(ns.network.Ipv4Address("10.1.1.0"), ns.network.Ipv4Mask("255.255
 interfaces = address.Assign(devices);
 
 
-# #######################################################################################
-# # --------------------OLD -----------------------CREATE UDP CLIENT AND SERVER
-# #
-# # In this section, we create two applications on the two different nodes, tells the
-# # client to connect to the server, and start generating 100 packets with a
-# # deterministic inter-arrival time.
-
-# # Create the server on port 9. Put it on node 1, and start it at time 1.0s.
-# echoServer = ns.applications.UdpEchoServerHelper(9)
-# serverApps = echoServer.Install(nodes.Get(1))
-# serverApps.Start(ns.core.Seconds(1.0))
-# serverApps.Stop(ns.core.Seconds(10.0))
-
-# # Create the client application and connect it to node 1 and port 9. Configure number
-# # of packets, packet sizes, inter-arrival interval.
-# echoClient = ns.applications.UdpEchoClientHelper(interfaces.GetAddress(1), 9)
-# echoClient.SetAttribute("MaxPackets", ns.core.UintegerValue(100))
-# echoClient.SetAttribute("Interval",
-#                         ns.core.TimeValue(ns.core.Seconds (float(cmd.interval))))
-# echoClient.SetAttribute("PacketSize", ns.core.UintegerValue(1024))
-
-# # Put the client on node 0 and start sending at time 2.0s.
-# clientApps = echoClient.Install(nodes.Get(0))
-# clientApps.Start(ns.core.Seconds(2.0))
-# clientApps.Stop(ns.core.Seconds(10.0))
-
 #######################################################################################
-#--------------------NEW -----------------------
 # CREATE UDP CLIENT AND SERVER
 #
 # In this section, we create two applications on the two different nodes, tells the
@@ -150,14 +123,16 @@ interfaces = address.Assign(devices);
 # deterministic inter-arrival time.
 
 # Create the server on port 9. Put it on node 1, and start it at time 1.0s.
-server = ns.applications.UdpServerHelper(9)
+
+
+server = ns.applications.UdpEchoServerHelper(9)
 serverApps = server.Install(nodes.Get(1))
 serverApps.Start(ns.core.Seconds(0.0))
 serverApps.Stop(ns.core.Seconds(3600.0))
 
 # Create the client application and connect it to node 1 and port 9. Configure number
 # of packets, packet sizes, inter-arrival interval.
-client = ns.applications.UdpClientHelper(interfaces.GetAddress(1), 9)
+client = ns.applications.UdpEchoClientHelper(interfaces.GetAddress(1), 9)
 client.SetAttribute("MaxPackets", ns.core.UintegerValue(100))
 client.SetAttribute("Interval",
                         ns.core.TimeValue(ns.core.Seconds (float(cmd.interval))))
@@ -168,7 +143,6 @@ clientApps.Start(ns.core.Seconds(0.0))
 clientApps.Stop(ns.core.Seconds(3600.0))
 
 
-#######################################################################################
 #######################################################################################
 # CREATE A PCAP PACKET TRACE FILE
 #
@@ -238,4 +212,3 @@ for flow_id, flow_stats in monitor.GetFlowStats():
 
 # This is what we want to do last
 ns.core.Simulator.Destroy()
-
