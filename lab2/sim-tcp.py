@@ -69,9 +69,7 @@ cmd = ns.core.CommandLine()
 
 # Default values
 cmd.latency = 1
-cmd.udprate = 500000
-cmd.tcprate = 1000000
-cmd.rate4to5 = 500000
+cmd.rate = 500000
 cmd.on_off_rate = 300000
 cmd.AddValue ("rate", "P2P data rate in bps")
 cmd.AddValue ("latency", "P2P link Latency in miliseconds")
@@ -123,31 +121,16 @@ n4n5.Add(nodes.Get(5))
 pointToPoint = ns.point_to_point.PointToPointHelper()
 pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(1500))
 pointToPoint.SetDeviceAttribute("DataRate",
-                            ns.network.DataRateValue(ns.network.DataRate(int(cmd.udprate))))
+                            ns.network.DataRateValue(ns.network.DataRate(int(cmd.rate))))
 pointToPoint.SetChannelAttribute("Delay",
                             ns.core.TimeValue(ns.core.MilliSeconds(int(cmd.latency))))
 
 # install network devices for all nodes based on point-to-point links
-
-d1d4 = pointToPoint.Install(n1n4)
-d3d5 = pointToPoint.Install(n3n5)
-
-pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(1500))
-pointToPoint.SetDeviceAttribute("DataRate",
-                                ns.network.DataRateValue(ns.network.DataRate(int(cmd.rate4to5))))
-pointToPoint.SetChannelAttribute("Delay",
-                            ns.core.TimeValue(ns.core.MilliSeconds(int(cmd.latency))))
-
-d4d5 = pointToPoint.Install(n4n5)
-
-pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(1500))
-pointToPoint.SetDeviceAttribute("DataRate",
-                                ns.network.DataRateValue(ns.network.DataRate(int(cmd.tcprate))))
-pointToPoint.SetChannelAttribute("Delay",
-                            ns.core.TimeValue(ns.core.MilliSeconds(int(cmd.latency))))
-
 d0d4 = pointToPoint.Install(n0n4)
+d1d4 = pointToPoint.Install(n1n4)
 d2d5 = pointToPoint.Install(n2n5)
+d3d5 = pointToPoint.Install(n3n5)
+d4d5 = pointToPoint.Install(n4n5)
 
 # Here we can introduce an error model on the bottle-neck link (from node 4 to 5)
 #em = ns.network.RateErrorModel()
@@ -237,15 +220,15 @@ def SetupTcpConnection(srcNode, dstNode, dstAddr, startTime, stopTime):
                           ns.network.InetSocketAddress(ns.network.Ipv4Address.GetAny(), 
                                                        8080))
   sink_apps = packet_sink_helper.Install(dstNode)
-  sink_apps.Start(startTime)
-  sink_apps.Stop(stopTime) 
+  sink_apps.Start(ns.core.Seconds(2.0))
+  sink_apps.Stop(ns.core.Seconds(50.0)) 
 
   # Create TCP connection from srcNode to dstNode 
   on_off_tcp_helper = ns.applications.OnOffHelper("ns3::TcpSocketFactory", 
                           ns.network.Address(ns.network.InetSocketAddress(dstAddr, 8080)))
   on_off_tcp_helper.SetAttribute("DataRate",
                       ns.network.DataRateValue(ns.network.DataRate(int(cmd.on_off_rate))))
-  on_off_tcp_helper.SetAttribute("PacketSize", ns.core.UintegerValue(500)) 
+  on_off_tcp_helper.SetAttribute("PacketSize", ns.core.UintegerValue(1500)) 
   on_off_tcp_helper.SetAttribute("OnTime",
                       ns.core.StringValue("ns3::ConstantRandomVariable[Constant=2]"))
   on_off_tcp_helper.SetAttribute("OffTime",
@@ -259,37 +242,10 @@ def SetupTcpConnection(srcNode, dstNode, dstAddr, startTime, stopTime):
   client_apps.Stop(stopTime) 
 
 
-def SetupUdpConnection(srcNode, dstNode, dstAddr, startTime, stopTime):
-  # Create a UDP sink at dstNode
-  packet_sink_helper = ns.applications.PacketSinkHelper("ns3::UdpSocketFactory", 
-                          ns.network.InetSocketAddress(ns.network.Ipv4Address.GetAny(), 
-                                                       8080))
-  sink_apps = packet_sink_helper.Install(dstNode)
-  sink_apps.Start(startTime)
-  sink_apps.Stop(stopTime) 
-
-  # Create UDP connection from srcNode to dstNode 
-  on_off_udp_helper = ns.applications.OnOffHelper("ns3::UdpSocketFactory", 
-                                                  ns.network.Address(ns.network.InetSocketAddress(dstAddr, 8080)))
-  on_off_udp_helper.SetAttribute("DataRate",
-                      ns.network.DataRateValue(ns.network.DataRate(int(cmd.on_off_rate))))
-  on_off_udp_helper.SetAttribute("PacketSize", ns.core.UintegerValue(500)) 
-  on_off_udp_helper.SetAttribute("OnTime",
-                      ns.core.StringValue("ns3::ConstantRandomVariable[Constant=2]"))
-  on_off_udp_helper.SetAttribute("OffTime",
-                        ns.core.StringValue("ns3::ConstantRandomVariable[Constant=1]"))
-  #                      ns.core.StringValue("ns3::UniformRandomVariable[Min=1,Max=2]"))
-  #                      ns.core.StringValue("ns3::ExponentialRandomVariable[Mean=2]"))
-
-  # Install the client on node srcNode
-  client_apps = on_off_udp_helper.Install(srcNode)
-  client_apps.Start(startTime)
-  client_apps.Stop(stopTime) 
-
 SetupTcpConnection(nodes.Get(0), nodes.Get(2), if2if5.GetAddress(0),
-                   ns.core.Seconds(1.0), ns.core.Seconds(40.0))
-SetupUdpConnection(nodes.Get(1), nodes.Get(3), if3if5.GetAddress(0),
-                   ns.core.Seconds(10.0), ns.core.Seconds(40.0))
+                   ns.core.Seconds(2.0), ns.core.Seconds(40.0))
+SetupTcpConnection(nodes.Get(1), nodes.Get(3), if3if5.GetAddress(0),
+                   ns.core.Seconds(20.0), ns.core.Seconds(40.0))
 
 
 #######################################################################################
@@ -302,10 +258,8 @@ SetupUdpConnection(nodes.Get(1), nodes.Get(3), if3if5.GetAddress(0),
 #
 # You will get two files, one for node 0 and one for node 1
 
-pointToPoint.EnablePcap("sim-tcp-client", d0d4.Get(0), True)
-pointToPoint.EnablePcap("sim-tcp-sink", d2d5.Get(0), True)
-pointToPoint.EnablePcap("sim-udp-client", d1d4.Get(0), True)
-pointToPoint.EnablePcap("sim-udp-sink", d3d5.Get(0), True)
+pointToPoint.EnablePcap("sim-tcp", d0d4.Get(0), True)
+pointToPoint.EnablePcap("sim-tcp", d1d4.Get(0), True)
 
 
 #######################################################################################

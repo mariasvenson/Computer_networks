@@ -92,10 +92,10 @@ devices = pointToPoint.Install(nodes)
 devices.Get(0).GetQueue().SetAttribute("MaxPackets", ns.core.UintegerValue(100))
 devices.Get(1).GetQueue().SetAttribute("MaxPackets", ns.core.UintegerValue(1))
 
-em = ns.network.RateErrorModel()
-em.SetAttribute("ErrorUnit", ns.core.StringValue("ERROR_UNIT_PACKET"))
-em.SetAttribute("ErrorRate", ns.core.DoubleValue(0.1))
-devices.Get(1).SetReceiveErrorModel(em)
+# em = ns.network.RateErrorModel()
+# em.SetAttribute("ErrorUnit", ns.core.StringValue("ERROR_UNIT_PACKET"))
+# em.SetAttribute("ErrorRate", ns.core.DoubleValue(0.1))
+# devices.Get(1).SetReceiveErrorModel(em)
 
 #######################################################################################
 # CREATE A PROTOCOL STACK
@@ -150,30 +150,22 @@ interfaces = address.Assign(devices);
 # deterministic inter-arrival time.
 
 # Create the server on port 9. Put it on node 1, and start it at time 1.0s.
-echoServer = ns.applications.UdpEchoServerHelper(9)
-echoServer2 = ns.applications.UdpEchoServerHelper(10)
-serverApps = echoServer.Install(nodes.Get(1))
-serverApps.Add(echoServer2.Install(nodes.Get(1)))
-serverApps.Start(ns.core.Seconds(1.0))
-serverApps.Stop(ns.core.Seconds(10.0))
+server = ns.applications.UdpServerHelper(9)
+serverApps = server.Install(nodes.Get(1))
+serverApps.Start(ns.core.Seconds(0.0))
+serverApps.Stop(ns.core.Seconds(3600.0))
 
 # Create the client application and connect it to node 1 and port 9. Configure number
 # of packets, packet sizes, inter-arrival interval.
-echoClient = ns.applications.UdpEchoClientHelper(interfaces.GetAddress(1), 9)
-echoClient2 = ns.applications.UdpEchoClientHelper(interfaces.GetAddress(1), 10)
-echoClient.SetAttribute("MaxPackets", ns.core.UintegerValue(100))
-echoClient.SetAttribute("Interval",
+client = ns.applications.UdpClientHelper(interfaces.GetAddress(1), 9)
+client.SetAttribute("MaxPackets", ns.core.UintegerValue(100))
+client.SetAttribute("Interval",
                         ns.core.TimeValue(ns.core.Seconds (float(cmd.interval))))
-echoClient.SetAttribute("PacketSize", ns.core.UintegerValue(1024))
-echoClient2.SetAttribute("MaxPackets", ns.core.UintegerValue(100))
-echoClient2.SetAttribute("Interval",
-                        ns.core.TimeValue(ns.core.Seconds (float(cmd.interval))))
-echoClient2.SetAttribute("PacketSize", ns.core.UintegerValue(1024))
+client.SetAttribute("PacketSize", ns.core.UintegerValue(1024))
 # Put the client on node 0 and start sending at time 2.0s.
-clientApps = echoClient.Install(nodes.Get(0))
-clientApps.Add(echoClient2.Install(nodes.Get(0)))
-clientApps.Start(ns.core.Seconds(2.0))
-clientApps.Stop(ns.core.Seconds(10.0))
+clientApps = client.Install(nodes.Get(0))
+clientApps.Start(ns.core.Seconds(0.0))
+clientApps.Stop(ns.core.Seconds(3600.0))
 
 
 #######################################################################################
@@ -209,7 +201,7 @@ monitor = flowmon_helper.InstallAll()
 #
 # We have to set stop time, otherwise the flowmonitor causes simulation to run forever
 
-ns.core.Simulator.Stop(ns.core.Seconds(15.0))
+ns.core.Simulator.Stop(ns.core.Seconds(3800.0))
 ns.core.Simulator.Run()
 
 
