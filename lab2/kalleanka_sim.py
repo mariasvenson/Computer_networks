@@ -1,19 +1,21 @@
 #
-# This script simulates 6 nodes configured in a "dumb bell" network. See below:
+
 #
-# Network topology
+# Network topology: Star 
 #
-#       n0 ---+      +--- n2
-#             |      |
-#             n4 -- n5
-#             |      |
-#       n1 ---+      +--- n3
+#                n2 n3 n4
+#                 \ | /
+#                  \|/
+#              S1---R0---n5
+#                  /|\
+#                 / | \
+#               n8 n7 n6
 #
 # - All links are point-to-point with data rate 500kb/s and propagation delay 2ms
-#
+# - Server 
 # Two data flows (and their applications are created):
-# - A TCP flow form n0 to n2
-# - A TCP flow from n1 to n3
+# - UDP flow between all the nodes 
+# - Server is an UDPClient and the nodes is UDPserver.
 
 import sys
 import ns.applications
