@@ -21,6 +21,7 @@ import ns.core
 import ns.internet
 import ns.network
 import ns.point_to_point
+import ns.point_to_point_layout
 import ns.flow_monitor
 
 #######################################################################################
@@ -69,19 +70,19 @@ cmd = ns.core.CommandLine()
 
 # Default values
 cmd.latency = 1
-cmd.rate = 500000
-cmd.on_off_rate = 300000
+cmd.rate = 1000000000
+cmd.interval = 1
 cmd.AddValue ("rate", "P2P data rate in bps")
 cmd.AddValue ("latency", "P2P link Latency in miliseconds")
-cmd.AddValue ("on_off_rate", "OnOffApplication data sending rate")
+cmd.AddValue ("interval", "UDP client packet interval")
 cmd.Parse(sys.argv)
 
 
 #######################################################################################
 # CREATE NODES
 
-nodes = ns.network.NodeContainer()
-nodes.Create(2)
+#nodes = ns.network.NodeContainer()
+#nodes.Create(8)
 
 
 #######################################################################################
@@ -93,56 +94,45 @@ nodes.Create(2)
 
 # Set the default queue length to 5 packets (used by NetDevices)
 ns.core.Config.SetDefault("ns3::DropTailQueue::MaxPackets", ns.core.UintegerValue(5))
-
-
-# To connect the point-to-point channels, we need to define NodeContainers for all the
-# point-to-point channels.
-serverNode = ns.network.NodeContainer()
-serverNode.Add(nodes.Get(0))
-
-clientNodes = ns.network.NodeContainer()
-clientNodes.Add(nodes.Get(1))
-
-# create point-to-point helper with common attributes
 pointToPoint = ns.point_to_point.PointToPointHelper()
-pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(1500))
-pointToPoint.SetDeviceAttribute("DataRate",
-                            ns.network.DataRateValue(ns.network.DataRate(int(cmd.rate))))
-pointToPoint.SetChannelAttribute("Delay",
-                            ns.core.TimeValue(ns.core.MilliSeconds(int(cmd.latency))))
+pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(576))
+pointToPoint.SetDeviceAttribute("DataRate",ns.network.DataRateValue(ns.network.DataRate(32000)))
+pointToPoint.SetChannelAttribute("Delay",ns.core.TimeValue(ns.core.MilliSeconds(0)))
+star = ns.point_to_point_layout.PointToPointStarHelper(8, pointToPoint)
 
-# install network devices for all nodes based on point-to-point links
-serverDevice = pointToPoint.Install(serverNode)
-clientDevices = pointToPoint.Install(clientNodes)
+# Add each client to a container
+clnt = ns.network.NodeContainer()
+for i in range(0, int(star.SpokeCount())):
+  clnt.Add(star.GetSpokeNode(i))
+
+# the minimum MTU size that an host can set is 576 and IP header max size can be 60 bytes 
+# (508 = 576 MTU - 60 IP - 8 UDP)
+
+pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(576))
+pointToPoint.SetDeviceAttribute("DataRate", ns.network.DataRateValue(ns.network.DataRate(3200000000)))
+pointToPoint.SetChannelAttribute("Delay", ns.core.TimeValue(ns.core.MilliSeconds(int(0))))
+
+# Add server node to a own container
+srvr = ns.network.NodeContainer()
+srvr.Create(1) 
+
+# Add server and switch nodes to a own container
+srvrToSwitch = ns.network.NodeContainer()
+srvrToSwitch.Add(srvr.Get(0))
+srvrToSwitch.Add(star.GetHub())
+
+# Install point-to-point between server and switch
+pSrvrTopSwitch = pointToPoint.Install(srvrToSwitch)
+
+
+
+
 
 # Here we can introduce an error model on the bottle-neck link (from node 4 to 5)
 #em = ns.network.RateErrorModel()
 #em.SetAttribute("ErrorUnit", ns.core.StringValue("ERROR_UNIT_PACKET"))
 #em.SetAttribute("ErrorRate", ns.core.DoubleValue(0.02))
 #d4d5.Get(1).SetReceiveErrorModel(em)
-
-
-#######################################################################################
-# CONFIGURE TCP
-#
-# Choose a TCP version and set some attributes.
-
-# Set a TCP segment size (this should be inline with the channel MTU)
-ns.core.Config.SetDefault("ns3::TcpSocket::SegmentSize", ns.core.UintegerValue(1448))
-
-# If you want, you may set a default TCP version here. It will affect all TCP
-# connections created in the simulator. If you want to simulate different TCP versions
-# at the same time, see below for how to do that.
-#ns.core.Config.SetDefault("ns3::TcpL4Protocol::SocketType",
-#                          ns.core.StringValue("ns3::TcpTahoe"))
-#                          ns.core.StringValue("ns3::TcpReno"))
-#                          ns.core.StringValue("ns3::TcpNewReno"))
-#                          ns.core.StringValue("ns3::TcpWestwood"))
-
-# Some examples of attributes for some of the TCP versions.
-ns.core.Config.SetDefault("ns3::TcpNewReno::ReTxThreshold", ns.core.UintegerValue(4))
-ns.core.Config.SetDefault("ns3::TcpWestwood::ProtocolType",
-                          ns.core.StringValue("WestwoodPlus"))
 
 
 #######################################################################################
@@ -155,30 +145,18 @@ ns.core.Config.SetDefault("ns3::TcpWestwood::ProtocolType",
 
 # Install networking stack for nodes
 stack = ns.internet.InternetStackHelper()
-stack.Install(nodes)
+star.InstallStack(stack)
 
-# Here, you may change the TCP version per node. A node can only support on version at
-# a time, but different nodes can run different versions. The versions only affect the
-# sending node. Note that this must called after stack.Install().
-#
-# The code below would tell node 0 to use TCP Tahoe and node 1 to use TCP Westwood.
-#ns.core.Config.Set("/NodeList/0/$ns3::TcpL4Protocol/SocketType",
-#                   ns.core.TypeIdValue(ns.core.TypeId.LookupByName ("ns3::TcpTahoe")))
-#ns.core.Config.Set("/NodeList/1/$ns3::TcpL4Protocol/SocketType",
-#                   ns.core.TypeIdValue(ns.core.TypeId.LookupByName ("ns3::TcpWestwood")))
+stack.Install(srvr)
 
+clientAddresses = ns.internet.Ipv4AddressHelper()
+clientAddresses.SetBase(ns.network.Ipv4Address("10.1.1.0"), ns.network.Ipv4Mask("255.255.255.0"))
+clientInterface = star.AssignIpv4Addresses(clientAddresses)
 
-# Assign IP addresses for net devices
-address = ns.internet.Ipv4AddressHelper()
+serverAddresses = ns.internet.Ipv4AddressHelper()
+serverAddresses.SetBase(ns.network.Ipv4Address("10.2.0.0"), ns.network.Ipv4Mask("255.255.255.0"))
+serverInterface = serverAddresses.Assign(pSrvrTopSwitch)
 
-address.SetBase(ns.network.Ipv4Address("10.1.1.0"), ns.network.Ipv4Mask("255.255.255.0"))
-serverInterface = address.Assign(serverDevice)
-
-address.SetBase(ns.network.Ipv4Address("10.1.2.0"), ns.network.Ipv4Mask("255.255.255.0"))
-clientInterface = address.Assign(clientNodes)
-
-
-# Turn on global static routing so we can actually be routed across the network.
 ns.internet.Ipv4GlobalRoutingHelper.PopulateRoutingTables()
 
 
@@ -189,22 +167,36 @@ ns.internet.Ipv4GlobalRoutingHelper.PopulateRoutingTables()
 # An On-Off application alternates between on and off modes. In on mode, packets are
 # generated according to DataRate, PacketSize. In off mode, no packets are transmitted.
 
-server = ns.applications.UdpServerHelper(9)
-serverApps = server.Install(serverNode)
-serverApps.Start(ns.core.Seconds(0.0))
-serverApps.Stop(ns.core.Seconds(3600.0))
+# CONFIGURE CLIENT
+#clientApps = ns.applications.ApplicationContainer()
+for i in range(0, int(star.SpokeCount())):
+  #client_address = ns.network.InetSocketAddress(star.GetSpokeIpv4Address(i), 9)
 
-# Create the client application and connect it to node 1 and port 9. Configure number
-# of packets, packet sizes, inter-arrival interval.
-client = ns.applications.UdpClientHelper(clientInterface.GetAddress(1), 9)
-client.SetAttribute("MaxPackets", ns.core.UintegerValue(100))
-client.SetAttribute("Interval",
-                        ns.core.TimeValue(ns.core.Seconds (float(cmd.interval))))
-client.SetAttribute("PacketSize", ns.core.UintegerValue(1024))
-# Put the client on node 0 and start sending at time 2.0s.
-clientApps = client.Install(clientNodes)
-clientApps.Start(ns.core.Seconds(0.0))
-clientApps.Stop(ns.core.Seconds(3600.0))
+  client_address = star.GetSpokeNode(i).GetDevice(0).GetAddress()
+  packet_sink_helper = ns.applications.PacketSinkHelper("ns3::UdpSocketFactory", client_address)
+  clientApps = packet_sink_helper.Install(star.GetSpokeNode(i))
+  clientApps.Start(ns.core.Seconds(0.0))
+  clientApps.Stop(ns.core.Seconds(3600.0))
+
+
+
+# http://stackoverflow.com/questions/14993000/the-most-reliable-and-efficient-udp-packet-size
+# CONFIGURE SERVER
+for i in range(0, int(star.SpokeCount())):
+  clnt1 = ns.network.NodeContainer()
+  clnt1.Add(star.GetSpokeNode(i))
+  server = ns.applications.UdpClientHelper(star.GetSpokeIpv4Address(i), 9)
+  server.SetAttribute("MaxPackets", ns.core.UintegerValue(27000))
+  server.SetAttribute("PacketSize", ns.core.UintegerValue(508)) 
+  server.SetAttribute("Interval", ns.core.TimeValue(ns.core.Seconds(float(0.1))))
+  serverApps = server.Install(srvr)
+  serverApps.Start(ns.core.Seconds(0.0))
+  serverApps.Stop(ns.core.Seconds(3600.0))
+
+
+
+
+
 
 #######################################################################################
 # CREATE A PCAP PACKET TRACE FILE
@@ -216,8 +208,7 @@ clientApps.Stop(ns.core.Seconds(3600.0))
 #
 # You will get two files, one for node 0 and one for node 1
 
-pointToPoint.EnablePcap("sim-udp-server", serverDevice.Get(0), True)
-pointToPoint.EnablePcap("sim-udp-server", clientDevices.Get(0), True)
+pointToPoint.EnablePcap("sim-server", pSrvrTopSwitch.Get(0), True)
 
 
 #######################################################################################
