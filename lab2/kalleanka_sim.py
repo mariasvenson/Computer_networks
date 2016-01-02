@@ -1,21 +1,20 @@
 #
-
 #
 # Network topology: Star 
 #
 #                n2 n3 n4
 #                 \ | /
 #                  \|/
-#              S1---R0---n5
+#              S0---R0---n5
 #                  /|\
 #                 / | \
-#               n8 n7 n6
+#             n100 ... n6
 #
-# - All links are point-to-point with data rate 500kb/s and propagation delay 2ms
-# - Server 
+# - All links between R0 and n1..n100 are point-to-point with data rate 100 KB/s and propagation delay 10ms
+# - The link between R0 and the server S0 is point-to-point with data rate 10 MB/s and propagation delay 10ms
 # Two data flows (and their applications are created):
-# - UDP flow between all the nodes 
-# - Server is an UDPClient and the nodes is UDPserver.
+# - TCP flow between all the nodes 
+# - Server is n(100) BulkSendApplications and the nodes is PacketSink with TCP sockets.
 
 import sys
 import ns.applications
@@ -32,7 +31,6 @@ import ns.flow_monitor
 # Enable this line to have random number being generated between runs.
 
 #ns.core.RngSeedManager.SetSeed(int(time.time() * 1000 % (2**31-1)))
-
 
 #######################################################################################
 # LOGGING
@@ -54,8 +52,6 @@ import ns.flow_monitor
 #ns.core.LogComponentEnable("TcpNewReno", ns.core.LOG_LEVEL_LOGIC)
 
 
-
-
 #######################################################################################
 # COMMAND LINE PARSING
 #
@@ -63,7 +59,7 @@ import ns.flow_monitor
 # command line instead of in the script. You may start the simulation by:
 #
 # bash$ ./waf shell
-# bash$ python sim-tcp.py --latency=10
+# bash$ python kalleanka_sim.py --nclients=100
 #
 # You can add your own parameters and there default values below. To access the values
 # in the simulator, you use the variable cmd.something.
@@ -71,70 +67,60 @@ import ns.flow_monitor
 cmd = ns.core.CommandLine()
 
 # Default values
-cmd.latency = 1
-cmd.rate = 1000000000
-cmd.interval = 1
-cmd.AddValue ("rate", "P2P data rate in bps")
+cmd.latency = 10 # 10 ms
+cmd.crate = 800000 # 100 KB/s
+cmd.srate = 80000000 # 10 MB/s
+cmd.nclients = 100 
 cmd.AddValue ("latency", "P2P link Latency in miliseconds")
-cmd.AddValue ("interval", "UDP client packet interval")
+cmd.AddValue ("crate", "P2P data rate of the clients in bps")
+cmd.AddValue ("srate", "P2P data rate of the server in bps")
+cmd.AddValue ("nclients", "Number of clients/spokes in the star topology")
 cmd.Parse(sys.argv)
 
 
 #######################################################################################
-# CREATE NODES
+# OTHER DEFAULT VALUES
 
-#nodes = ns.network.NodeContainer()
-#nodes.Create(8)
+PACKET_SIZE = 1448 # 1448 B
+FILE_SIZE = 12000000 # 12 MB
+scenario = 1
+
+ns.core.Config.SetDefault("ns3::TcpSocket::SegmentSize", ns.core.UintegerValue(1448));
+ns.core.Config.SetDefault("ns3::DropTailQueue::MaxPackets", ns.core.UintegerValue(150))
 
 
 #######################################################################################
-# CONNECT NODES WITH POINT-TO-POINT CHANNEL
+# SET UP STAR TOPOLOGY AND CONNECT NODES WITH POINT-TO-POINT CHANNEL
 #
 # We use a helper class to create the point-to-point channels. It helps us with creating
 # the necessary objects on the two connected nodes as well, including creating the
 # NetDevices (of type PointToPointNetDevice), etc.
 
-# Set the default queue length to 5 packets (used by NetDevices)
-ns.core.Config.SetDefault("ns3::DropTailQueue::MaxPackets", ns.core.UintegerValue(5))
+# First we set up the point-to-point channels between the clients (spokes) and insert
+# them to the PointToPointStarHelper which then will create nclients. 
 pointToPoint = ns.point_to_point.PointToPointHelper()
-pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(576))
-pointToPoint.SetDeviceAttribute("DataRate",ns.network.DataRateValue(ns.network.DataRate(32000)))
-pointToPoint.SetChannelAttribute("Delay",ns.core.TimeValue(ns.core.MilliSeconds(0)))
-star = ns.point_to_point_layout.PointToPointStarHelper(8, pointToPoint)
+pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(1500))
+pointToPoint.SetDeviceAttribute("DataRate",ns.network.DataRateValue(ns.network.DataRate(cmd.crate)))
+pointToPoint.SetChannelAttribute("Delay",ns.core.TimeValue(ns.core.MilliSeconds(cmd.latency)))
+star = ns.point_to_point_layout.PointToPointStarHelper(cmd.nclients, pointToPoint)
 
-# Add each client to a container
-clnt = ns.network.NodeContainer()
-for i in range(0, int(star.SpokeCount())):
-  clnt.Add(star.GetSpokeNode(i))
+# Next we set up another point-to-point channel between the hub and the server
+pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(1500))
+pointToPoint.SetDeviceAttribute("DataRate", ns.network.DataRateValue(ns.network.DataRate(cmd.srate)))
+pointToPoint.SetChannelAttribute("Delay", ns.core.TimeValue(ns.core.MilliSeconds(cmd.latency)))
 
-# the minimum MTU size that an host can set is 576 and IP header max size can be 60 bytes 
-# (508 = 576 MTU - 60 IP - 8 UDP)
-
-pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(576))
-pointToPoint.SetDeviceAttribute("DataRate", ns.network.DataRateValue(ns.network.DataRate(3200000000)))
-pointToPoint.SetChannelAttribute("Delay", ns.core.TimeValue(ns.core.MilliSeconds(int(0))))
-
-# Add server node to a own container
+# Add server node to a own container. This is done because the BulkSendApplication requires
+# a NodeContainer as input to install
 srvr = ns.network.NodeContainer()
 srvr.Create(1) 
 
-# Add server and switch nodes to a own container
-srvrToSwitch = ns.network.NodeContainer()
-srvrToSwitch.Add(srvr.Get(0))
-srvrToSwitch.Add(star.GetHub())
+# Add server and hub nodes to a own container in order to assign ip addresses in the same subnet
+srvrToHub = ns.network.NodeContainer()
+srvrToHub.Add(srvr.Get(0))
+srvrToHub.Add(star.GetHub())
 
-# Install point-to-point between server and switch
-pSrvrTopSwitch = pointToPoint.Install(srvrToSwitch)
-
-
-
-
-
-# Here we can introduce an error model on the bottle-neck link (from node 4 to 5)
-#em = ns.network.RateErrorModel()
-#em.SetAttribute("ErrorUnit", ns.core.StringValue("ERROR_UNIT_PACKET"))
-#em.SetAttribute("ErrorRate", ns.core.DoubleValue(0.02))
-#d4d5.Get(1).SetReceiveErrorModel(em)
+# Install point-to-point between server and hub
+pSrvrTopSwitch = pointToPoint.Install(srvrToHub)
 
 
 #######################################################################################
@@ -148,15 +134,14 @@ pSrvrTopSwitch = pointToPoint.Install(srvrToSwitch)
 # Install networking stack for nodes
 stack = ns.internet.InternetStackHelper()
 star.InstallStack(stack)
-
 stack.Install(srvr)
 
 clientAddresses = ns.internet.Ipv4AddressHelper()
-clientAddresses.SetBase(ns.network.Ipv4Address("10.1.1.0"), ns.network.Ipv4Mask("255.255.255.0"))
+clientAddresses.SetBase(ns.network.Ipv4Address("10.0.2.0"), ns.network.Ipv4Mask("255.255.255.0"))
 clientInterface = star.AssignIpv4Addresses(clientAddresses)
 
 serverAddresses = ns.internet.Ipv4AddressHelper()
-serverAddresses.SetBase(ns.network.Ipv4Address("10.2.0.0"), ns.network.Ipv4Mask("255.255.255.0"))
+serverAddresses.SetBase(ns.network.Ipv4Address("10.0.1.0"), ns.network.Ipv4Mask("255.255.255.0"))
 serverInterface = serverAddresses.Assign(pSrvrTopSwitch)
 
 ns.internet.Ipv4GlobalRoutingHelper.PopulateRoutingTables()
@@ -165,39 +150,45 @@ ns.internet.Ipv4GlobalRoutingHelper.PopulateRoutingTables()
 #######################################################################################
 # CREATE TCP APPLICATION AND CONNECTION
 #
-# Create a TCP client at node N0 and a TCP sink at node N2 using an On-Off application.
-# An On-Off application alternates between on and off modes. In on mode, packets are
-# generated according to DataRate, PacketSize. In off mode, no packets are transmitted.
+# Create a TCP packet sink at each client/spoke, node N1..N100 and 100 TCP BulkSendApplications
+# at the server S0, one for each client to send to.
 
-# CONFIGURE CLIENT
-#clientApps = ns.applications.ApplicationContainer()
+# CONFIGURE CLIENTS
 for i in range(0, int(star.SpokeCount())):
-  #client_address = ns.network.InetSocketAddress(star.GetSpokeIpv4Address(i), 9)
-
-  client_address = star.GetSpokeNode(i).GetDevice(0).GetAddress()
-  packet_sink_helper = ns.applications.PacketSinkHelper("ns3::UdpSocketFactory", client_address)
+  client_address = ns.network.InetSocketAddress(star.GetSpokeIpv4Address(i), 9)
+  packet_sink_helper = ns.applications.PacketSinkHelper("ns3::TcpSocketFactory", client_address)
   clientApps = packet_sink_helper.Install(star.GetSpokeNode(i))
   clientApps.Start(ns.core.Seconds(0.0))
-  clientApps.Stop(ns.core.Seconds(3600.0))
+  clientApps.Stop(ns.core.Seconds(130.0))
 
-
-
-# http://stackoverflow.com/questions/14993000/the-most-reliable-and-efficient-udp-packet-size
 # CONFIGURE SERVER
 for i in range(0, int(star.SpokeCount())):
-  clnt1 = ns.network.NodeContainer()
-  clnt1.Add(star.GetSpokeNode(i))
-  server = ns.applications.UdpClientHelper(star.GetSpokeIpv4Address(i), 9)
-  server.SetAttribute("MaxPackets", ns.core.UintegerValue(27000))
-  server.SetAttribute("PacketSize", ns.core.UintegerValue(508)) 
-  server.SetAttribute("Interval", ns.core.TimeValue(ns.core.Seconds(float(0.1))))
+  client_address = ns.network.InetSocketAddress(star.GetSpokeIpv4Address(i), 9)
+  server = ns.applications.BulkSendHelper("ns3::TcpSocketFactory", client_address)
+  server.SetAttribute("MaxBytes", ns.core.UintegerValue(FILE_SIZE))
+  server.SetAttribute("SendSize", ns.core.UintegerValue(PACKET_SIZE)) 
   serverApps = server.Install(srvr)
-  serverApps.Start(ns.core.Seconds(0.0))
-  serverApps.Stop(ns.core.Seconds(3600.0))
 
+  start = 10.0
+  # if scneario == 1, clients will drop in during while the movie is availible for streaming
+  # otherwise it will be the ideal scenario, 100 clients start at the same time in the beginning
+  if scenario == 1:
+    # clients 0..39 start at 10.0
+    # clients 40..69 start at 20.0
+    if i == 40:
+      start = 20.0
+    # clients 70..89 start at 30.0
+    elif i == 70:
+      start = 30.0
+   # clients 90..95 start at 40.0
+    elif i == 90:
+      start = 40.0
+   # clients 96..100 start at 50.0
+    elif i == 96:
+      start = 50.0
 
-
-
+  serverApps.Start(ns.core.Seconds(start))
+  serverApps.Stop(ns.core.Seconds(130.0))
 
 
 #######################################################################################
@@ -210,7 +201,7 @@ for i in range(0, int(star.SpokeCount())):
 #
 # You will get two files, one for node 0 and one for node 1
 
-pointToPoint.EnablePcap("sim-server", pSrvrTopSwitch.Get(0), True)
+pointToPoint.EnablePcap("sim-svtplay", pSrvrTopSwitch.Get(1), True)
 
 
 #######################################################################################
@@ -230,7 +221,7 @@ monitor = flowmon_helper.InstallAll()
 #
 # We have to set stop time, otherwise the flowmonitor causes simulation to run forever
 
-ns.core.Simulator.Stop(ns.core.Seconds(3800.0))
+ns.core.Simulator.Stop(ns.core.Seconds(200.0))
 ns.core.Simulator.Run()
 
 
