@@ -83,7 +83,7 @@ cmd.Parse(sys.argv)
 
 PACKET_SIZE = 1448 # 1448 B
 FILE_SIZE = 12000000 # 12 MB
-scenario = 1
+scenario = 2
 
 ns.core.Config.SetDefault("ns3::TcpSocket::SegmentSize", ns.core.UintegerValue(1448));
 ns.core.Config.SetDefault("ns3::DropTailQueue::MaxPackets", ns.core.UintegerValue(150))
@@ -100,14 +100,14 @@ ns.core.Config.SetDefault("ns3::DropTailQueue::MaxPackets", ns.core.UintegerValu
 # them to the PointToPointStarHelper which then will create nclients. 
 pointToPoint = ns.point_to_point.PointToPointHelper()
 pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(1500))
-pointToPoint.SetDeviceAttribute("DataRate",ns.network.DataRateValue(ns.network.DataRate(cmd.crate)))
-pointToPoint.SetChannelAttribute("Delay",ns.core.TimeValue(ns.core.MilliSeconds(cmd.latency)))
-star = ns.point_to_point_layout.PointToPointStarHelper(cmd.nclients, pointToPoint)
+pointToPoint.SetDeviceAttribute("DataRate",ns.network.DataRateValue(ns.network.DataRate(int(cmd.crate))))
+pointToPoint.SetChannelAttribute("Delay",ns.core.TimeValue(ns.core.MilliSeconds(int(cmd.latency))))
+star = ns.point_to_point_layout.PointToPointStarHelper(int(cmd.nclients), pointToPoint)
 
 # Next we set up another point-to-point channel between the hub and the server
 pointToPoint.SetDeviceAttribute("Mtu", ns.core.UintegerValue(1500))
-pointToPoint.SetDeviceAttribute("DataRate", ns.network.DataRateValue(ns.network.DataRate(cmd.srate)))
-pointToPoint.SetChannelAttribute("Delay", ns.core.TimeValue(ns.core.MilliSeconds(cmd.latency)))
+pointToPoint.SetDeviceAttribute("DataRate", ns.network.DataRateValue(ns.network.DataRate(int(cmd.srate))))
+pointToPoint.SetChannelAttribute("Delay", ns.core.TimeValue(ns.core.MilliSeconds(int(cmd.latency))))
 
 # Add server node to a own container. This is done because the BulkSendApplication requires
 # a NodeContainer as input to install
@@ -119,9 +119,6 @@ srvrToHub = ns.network.NodeContainer()
 srvrToHub.Add(srvr.Get(0))
 srvrToHub.Add(star.GetHub())
 
-# Install point-to-point between server and hub
-pSrvrTopSwitch = pointToPoint.Install(srvrToHub)
-
 
 #######################################################################################
 # CREATE A PROTOCOL STACK
@@ -130,6 +127,9 @@ pSrvrTopSwitch = pointToPoint.Install(srvrToHub)
 # pcap tracing, and routing if routing configurations are supplied. All links need
 # different subnet addresses. Finally, we enable static routing, which is automatically
 # setup by an oracle.
+
+# Install point-to-point between server and hub
+pSrvrTopHub = pointToPoint.Install(srvrToHub)
 
 # Install networking stack for nodes
 stack = ns.internet.InternetStackHelper()
@@ -142,7 +142,7 @@ clientInterface = star.AssignIpv4Addresses(clientAddresses)
 
 serverAddresses = ns.internet.Ipv4AddressHelper()
 serverAddresses.SetBase(ns.network.Ipv4Address("10.0.1.0"), ns.network.Ipv4Mask("255.255.255.0"))
-serverInterface = serverAddresses.Assign(pSrvrTopSwitch)
+serverInterface = serverAddresses.Assign(pSrvrTopHub)
 
 ns.internet.Ipv4GlobalRoutingHelper.PopulateRoutingTables()
 
@@ -162,6 +162,7 @@ for i in range(0, int(star.SpokeCount())):
   clientApps.Stop(ns.core.Seconds(130.0))
 
 # CONFIGURE SERVER
+start = 10.0
 for i in range(0, int(star.SpokeCount())):
   client_address = ns.network.InetSocketAddress(star.GetSpokeIpv4Address(i), 9)
   server = ns.applications.BulkSendHelper("ns3::TcpSocketFactory", client_address)
@@ -169,23 +170,28 @@ for i in range(0, int(star.SpokeCount())):
   server.SetAttribute("SendSize", ns.core.UintegerValue(PACKET_SIZE)) 
   serverApps = server.Install(srvr)
 
-  start = 10.0
-  # if scneario == 1, clients will drop in during while the movie is availible for streaming
+  # if scneario == 1, clients will join in during while the movie is availible for streaming
+  # if scenario == 2, two clients will join every second
   # otherwise it will be the ideal scenario, 100 clients start at the same time in the beginning
   if scenario == 1:
     # clients 0..39 start at 10.0
-    # clients 40..69 start at 20.0
+    # clients 40..69 start at 30.0
     if i == 40:
-      start = 20.0
-    # clients 70..89 start at 30.0
-    elif i == 70:
       start = 30.0
-   # clients 90..95 start at 40.0
-    elif i == 90:
-      start = 40.0
-   # clients 96..100 start at 50.0
-    elif i == 96:
+    # clients 70..89 start at 50.0
+    elif i == 70:
       start = 50.0
+   # clients 90..95 start at 70.0
+    elif i == 90:
+      start = 70.0
+   # clients 96..100 start at 90.0
+    elif i == 96:
+      start = 90.0
+  elif scenario == 2:
+    if i % 2 == 1:
+      start = float(i-1)
+    else:
+      start = float(i)
 
   serverApps.Start(ns.core.Seconds(start))
   serverApps.Stop(ns.core.Seconds(130.0))
@@ -201,8 +207,8 @@ for i in range(0, int(star.SpokeCount())):
 #
 # You will get two files, one for node 0 and one for node 1
 
-pointToPoint.EnablePcap("sim-svtplay", pSrvrTopSwitch.Get(1), True)
-
+#pointToPoint.EnablePcap("/media/sf_shared/sim-svtplay-srvr", pSrvrTopHub.Get(1), True)
+#pointToPoint.EnablePcap("/media/sf_shared/sim-svtplay-clnt", star.GetSpokeNode(0).GetDevice(0), True)
 
 #######################################################################################
 # FLOW MONITOR
