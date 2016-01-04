@@ -241,10 +241,13 @@ ns.core.Simulator.Run()
 monitor.CheckForLostPackets()
 
 classifier = flowmon_helper.GetClassifier()
-
+total_packets_lost = 0
+total_packets_sent = 0
 for flow_id, flow_stats in monitor.GetFlowStats():
   t = classifier.FindFlow(flow_id)
   proto = {6: 'TCP', 17: 'UDP'} [t.protocol]
+  total_packets_lost = total_packets_lost + flow_stats.lostPackets
+  total_packets_sent = total_packets_sent + flow_stats.txPackets
   print ("FlowID: %i (%s %s/%s --> %s/%i)" % 
           (flow_id, proto, t.sourceAddress, t.sourcePort, t.destinationAddress, t.destinationPort))
           
@@ -259,6 +262,11 @@ for flow_id, flow_stats in monitor.GetFlowStats():
                                        - flow_stats.timeFirstTxPacket.GetSeconds())/
                                      1024/
                                      1024))
+
+print "Lost a total of: " + str(total_packets_lost) + " packets"
+print "Sent a total of: "  + str(total_packets_sent) + " packets"
+print "We have: " + str(float(total_packets_lost)/float(total_packets_sent)*100) + "% packets loss"
+
 
 
 # This is what we want to do last
