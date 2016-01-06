@@ -67,9 +67,9 @@ import ns.flow_monitor
 cmd = ns.core.CommandLine()
 
 # Default values
-cmd.latency = 10 # 10 ms
+cmd.latency = 100 # 100 ms
 cmd.crate = 800000 # 100 KB/s
-cmd.srate = 80000000 # 10 MB/s
+cmd.srate = 10000000 # 10 MB/s
 cmd.nclients = 100 
 cmd.AddValue ("latency", "P2P link Latency in miliseconds")
 cmd.AddValue ("crate", "P2P data rate of the clients in bps")
@@ -83,10 +83,13 @@ cmd.Parse(sys.argv)
 
 PACKET_SIZE = 1448 # 1448 B
 FILE_SIZE = 12000000 # 12 MB
+QUEUE_SIZE = 100 # 20, 50, 100
+TCP_MODEL = "NewReno" # Westwood, Tahoe, NewReno
 scenario = 2
 
 ns.core.Config.SetDefault("ns3::TcpSocket::SegmentSize", ns.core.UintegerValue(1448));
-ns.core.Config.SetDefault("ns3::DropTailQueue::MaxPackets", ns.core.UintegerValue(150))
+ns.core.Config.SetDefault("ns3::DropTailQueue::MaxPackets", ns.core.UintegerValue(QUEUE_SIZE))
+ns.core.Config.SetDefault("ns3::TcpL4Protocol::SocketType", ns.core.StringValue("ns3::Tcp"+TCP_MODEL));
 
 
 #######################################################################################
@@ -243,17 +246,25 @@ monitor.CheckForLostPackets()
 classifier = flowmon_helper.GetClassifier()
 total_packets_lost = 0
 total_packets_sent = 0
+unwatchable_clients = 0
 for flow_id, flow_stats in monitor.GetFlowStats():
   t = classifier.FindFlow(flow_id)
   proto = {6: 'TCP', 17: 'UDP'} [t.protocol]
   total_packets_lost = total_packets_lost + flow_stats.lostPackets
   total_packets_sent = total_packets_sent + flow_stats.txPackets
+  print "lost packets: " + str(flow_stats.lostPackets)
+  print "sent packets: " + str(flow_stats.txPackets)
+  packet_loss = float(flow_stats.lostPackets)/float(flow_stats.txPackets)*100
+  print "packet loss: " + str(packet_loss)
+  if flow_id < 101 and packet_loss > 2.5:
+    unwatchable_clients = unwatchable_clients + 1
   print ("FlowID: %i (%s %s/%s --> %s/%i)" % 
           (flow_id, proto, t.sourceAddress, t.sourcePort, t.destinationAddress, t.destinationPort))
           
   print ("  Tx Bytes: %i" % flow_stats.txBytes)
   print ("  Rx Bytes: %i" % flow_stats.rxBytes)
   print ("  Lost Pkt: %i" % flow_stats.lostPackets)
+  print ("  Packet Loss: " + str(packet_loss) + "%")
   print ("  Flow active: %fs - %fs" % (flow_stats.timeFirstTxPacket.GetSeconds(),
                                        flow_stats.timeLastRxPacket.GetSeconds()))
   print ("  Throughput: %f Mbps" % (flow_stats.rxBytes * 
@@ -265,6 +276,7 @@ for flow_id, flow_stats in monitor.GetFlowStats():
 
 print "Lost a total of: " + str(total_packets_lost) + " packets"
 print "Sent a total of: "  + str(total_packets_sent) + " packets"
+print "Number of clients unable to watch without buffering: " + str(unwatchable_clients)
 print "We have: " + str(float(total_packets_lost)/float(total_packets_sent)*100) + "% packets loss"
 
 
